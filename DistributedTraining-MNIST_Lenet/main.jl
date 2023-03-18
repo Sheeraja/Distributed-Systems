@@ -2,6 +2,7 @@
 # Pkg.activate("/home/sr8685/.julia/environments/distributed_training")
 
 # cd("/home/sr8685/distributed_systems/DistributedTraining-MNIST_Lenet")
+# include("main.jl")
 
 # sinteractive --gpus=6
 
@@ -19,22 +20,22 @@ include("utils.jl")
 include("ddp_tasks.jl")
 include("overloads.jl")
 include("prepare.jl")
-include("training.jl")
+include("local_training.jl")
+include("distributed_training.jl")
 
-function getdata()
+function getdata(datafn=MNIST)
     # cifar_train = CIFAR10(:train)
     # cifar_test = CIFAR10(:test)
-    mnist_train = MNIST(:train)
-    mnist_test = MNIST(:test)
+    trainset = datafn(:train)
+    testset = datafn(:test)
     # return cifar_train, cifar_test
-    return mnist_train, mnist_test
+    return trainset, testset
 end
 
 function get_accuracy(test, m)
     # testx = test[1:100].features |> gpu
-    testx = Flux.unsqueeze(test.features; dims = 3) |> gpu
-    # testx = test.features |> gpu
-    ypred = m(testx)
+    ndims(test.features) == 3 ? (testx = Flux.unsqueeze(test.features; dims = 3)) : (testx = test.features)
+    ypred = m(testx |> gpu)
 
     ypred = Flux.onecold(ypred, 0:9) |> cpu;
 
@@ -59,25 +60,23 @@ function LeNet5(; imgsize=(28,28,1), nclasses=10)
           )
 end
 
-function main()
-    epochs = 5
-    # cifar_train, cifar_test = getdata();
-    mnist_train, mnist_test = getdata();
-    model = LeNet5()
+function main(;t = "local", data=MNIST, epochs=1, model::Chain=LeNet5())
+
+    # cifar_train, cifar_test = getdata(data);
+    traindata, testdata = getdata(data);
+    
+    # model = data == MNIST ? LeNet5() : LeNet5(imgsize=(32,32,3))
     # model = ResNet(18, nclasses=10).layers;
 
-    nt, buf = prepare_training(model, mnist_train, devices(), Flux.Adam());
-    ds_ms = train(nt, buf, epochs);
-
-    trained_model = ds_ms[1][2] |> cpu;
-    trained_model = trained_model |> gpu;
-    accuracy = get_accuracy(mnist_test, trained_model);
-    println("Accuracy: ", accuracy)
+    if(t == "local")
+        trained_model = localtrain(model, traindata, testdata, epochs)
+    else
+        nt, buf = prepare_training(model, traindata, devices(), Flux.Adam());
+        ds_ms = train(nt, testdata, buf, epochs);
+        trained_model = ds_ms[1][2] |> cpu;
+        trained_model = trained_model |> gpu;
+    end        
+    
+    accuracy = get_accuracy(testdata, trained_model);
+    println("Accuracy: $accuracy")
 end
-
-
-
-
-
-
-

@@ -28,7 +28,7 @@ function getdl(i, n, data)
     i -= 1
     total = length(data)
     sub_data = 1:total
-    feat = Flux.unsqueeze(data[sub_data .% n .== i].features; dims = 3)
+    ndims(data.features) == 3 ? feat = Flux.unsqueeze(data[sub_data .% n .== i].features; dims = 3) : feat = data[sub_data .%n .== i].features
     lbl = data[sub_data .% n .== i].targets
     
     MLUtils.DataLoader((feat, lbl); batchsize = 32, partial = false)
